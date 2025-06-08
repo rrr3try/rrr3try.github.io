@@ -230,6 +230,9 @@
     <div class="container">
         <h1>W' Balance Calculator</h1>
         <p class="subtitle">Estimation of W' Balance in Endurance Sports</p>
+        <p style="text-align: center; color: #888; font-size: 14px; margin-bottom: 20px;">
+            Featuring the scientifically validated Skiba Integral Algorithm and Waterworth's optimization
+        </p>
         
         <div class="input-section">
             <div class="input-group">
@@ -245,14 +248,9 @@
             <div class="input-group">
                 <label for="model">Model:</label>
                 <select id="model">
-                    <option value="skiba">Skiba's Exponential Model</option>
-                    <option value="morton">Morton's Integral Model</option>
+                    <option value="skiba">Skiba's Integral Algorithm</option>
+                    <option value="waterworth">Waterworth's Integral Optimization</option>
                 </select>
-            </div>
-            
-            <div class="input-group" id="mortonParams" style="display: none;">
-                <label for="recoveryRate">Recovery Rate (a):</label>
-                <input type="number" id="recoveryRate" value="0.5" min="0.1" max="2" step="0.1">
             </div>
         </div>
         
@@ -319,12 +317,6 @@
         window.onload = function() {
             const canvas = document.getElementById('chart');
             chartCtx = canvas.getContext('2d');
-            
-            // Handle model selection change
-            document.getElementById('model').addEventListener('change', function(e) {
-                document.getElementById('mortonParams').style.display = 
-                    e.target.value === 'morton' ? 'block' : 'none';
-            });
             
             // Handle window resize
             window.addEventListener('resize', function() {
@@ -394,7 +386,6 @@
             wprime = parseFloat(document.getElementById('wprime').value);
             const cp = parseFloat(document.getElementById('cp').value);
             const model = document.getElementById('model').value;
-            const recoveryRate = parseFloat(document.getElementById('recoveryRate').value);
             
             if (intervals.length === 0) {
                 alert('Please add at least one interval');
@@ -403,7 +394,7 @@
             
             // Calculate W' balance over time
             const timeStep = 1; // 1 second resolution
-            chartData = calculateWBalance(wprime, cp, intervals, model, recoveryRate, timeStep);
+            chartData = calculateWBalance(wprime, cp, intervals, model, timeStep);
             
             // Draw chart
             drawChart(chartData, wprime);
@@ -412,7 +403,7 @@
             showResults(chartData, wprime, cp);
         }
         
-        function calculateWBalance(wprime, cp, intervals, model, recoveryRate, timeStep) {
+        function calculateWBalance(wprime, cp, intervals, model, timeStep) {
             const data = {
                 time: [],
                 wBalance: [],
@@ -422,8 +413,31 @@
             let currentTime = 0;
             let currentWBalance = wprime;
             
-            // Calculate tau for Skiba's model
-            const tau = 546 * Math.exp(-0.01 * (wprime / cp)) + 316;
+            // First pass: calculate D_CP (difference between CP and average power below CP)
+            let sumPowerBelowCP = 0;
+            let timeBelowCP = 0;
+            
+            for (let i = 0; i < intervals.length; i++) {
+                const interval = intervals[i];
+                if (interval.power < cp) {
+                    sumPowerBelowCP += interval.power * interval.duration;
+                    timeBelowCP += interval.duration;
+                }
+            }
+            
+            const avgPowerBelowCP = timeBelowCP > 0 ? sumPowerBelowCP / timeBelowCP : cp;
+            const DCP = cp - avgPowerBelowCP;
+            
+            // Calculate tau using D_CP as per Skiba's formula
+            const tau = 546 * Math.exp(-0.01 * DCP) + 316;
+            
+            // For Skiba integral algorithm - store all expenditures with timestamps
+            const expenditures = []; // Array of {time, wExp} objects
+            
+            // For Waterworth optimization - efficient online algorithm
+            let S = 0.0; // Running sum for Waterworth model
+            const decay = Math.exp(-timeStep / tau); // e^(-dt/τ) - calculated once
+            let stepIndex = 0; // Track current step for Waterworth calculation
             
             for (let i = 0; i < intervals.length; i++) {
                 const interval = intervals[i];
@@ -444,28 +458,43 @@
                     
                     // Calculate W' expenditure/recovery
                     const pDiff = power - cp;
+                    const wExp = Math.max(0, pDiff * timeStep); // W'exp (expenditure above CP)
                     
                     if (model === 'skiba') {
-                        // Skiba's exponential model
-                        if (pDiff > 0) {
-                            // Depletion
-                            currentWBalance -= pDiff * timeStep;
-                        } else {
-                            // Recovery
-                            const wPrimeDiff = wprime - currentWBalance;
-                            currentWBalance += wPrimeDiff * (1 - Math.exp(pDiff * timeStep / wprime)) * 
-                                              Math.exp(pDiff * timeStep / wprime);
+                        // Skiba's integral algorithm (original)
+                        // W'_bal(t) = W' - Σ(u=0 to t) W'_exp(u) * e^(-(t-u)/τ)
+                        
+                        // Store current expenditure if > 0
+                        if (wExp > 0) {
+                            expenditures.push({
+                                time: currentTime,
+                                wExp: wExp
+                            });
                         }
+                        
+                        // Calculate integral sum of all previous expenditures
+                        let integralSum = 0;
+                        for (let j = 0; j < expenditures.length; j++) {
+                            const exp = expenditures[j];
+                            const timeDiff = currentTime - exp.time;
+                            const decayFactor = Math.exp(-timeDiff / tau);
+                            integralSum += exp.wExp * decayFactor;
+                        }
+                        
+                        // Calculate W' balance using integral formula
+                        currentWBalance = wprime - integralSum;
+                        
                     } else {
-                        // Morton's integral model
-                        if (pDiff > 0) {
-                            // Depletion
-                            currentWBalance -= pDiff * timeStep;
-                        } else {
-                            // Recovery
-                            const recoveryPower = -pDiff * recoveryRate;
-                            currentWBalance += recoveryPower * timeStep;
-                        }
+                        // Waterworth's efficient online optimization algorithm
+                        // Based on: S = (S + W) * decay^(-1) equivalent to S = S * e^(-dt/τ) + W
+                        // W_bal[i] = W' - S * decay^(i + 1)
+                        
+                        // Update running sum S using efficient online formula
+                        S = (S + wExp) * Math.pow(decay, -1);
+                        
+                        // Calculate W' balance at current step
+                        currentWBalance = wprime - S * Math.pow(decay, stepIndex + 1);
+                        stepIndex++;
                     }
                     
                     // Ensure W' balance stays within bounds
