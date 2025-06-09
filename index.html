@@ -241,10 +241,6 @@
     <div class="container">
         <h1>W' Balance Calculator</h1>
         <p class="subtitle">Estimation of W' Balance in Endurance Sports</p>
-        <p style="text-align: center; color: #888; font-size: 14px; margin-bottom: 20px;">
-            Featuring the scientifically validated Skiba Integral Algorithm and Waterworth's optimization
-        </p>
-        
         <div class="input-section">
             <div class="input-group">
                 <label for="wprime">W' (J):</label>
@@ -290,6 +286,7 @@
                             <th>Power (W)</th>
                             <th>Pace (min:sec/km)</th>
                             <th>Duration (s)</th>
+                            <th>Distance (m)</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -366,6 +363,9 @@
             // Calculate duration in minutes and seconds
             const durationMinSec = secondsToMinSec(duration);
             
+            // Calculate distance
+            const distance = calculateDistance(defaultPace, duration);
+            
             row.innerHTML = `
                 <td>${intervalNum}</td>
                 <td><input type="number" value="${power}" min="0" max="1000" step="1" onchange="updateFromPower(${intervals.length}, this.value)" id="power-${intervals.length}"></td>
@@ -388,6 +388,7 @@
                         </div>
                     </div>
                 </td>
+                <td><span id="distance-${intervals.length}" style="font-weight: bold; color: #007bff;">${distance} m</span></td>
                 <td><button class="btn btn-danger" onclick="removeInterval(${intervals.length})">Remove</button></td>
             `;
             
@@ -408,6 +409,9 @@
             
             document.getElementById(`pace-min-${index}`).value = paceMinSec.minutes;
             document.getElementById(`pace-sec-${index}`).value = paceMinSec.seconds;
+            
+            // Update distance
+            updateDistance(index);
         }
         
         function updateFromPace(index) {
@@ -421,6 +425,9 @@
             
             // Update power field to match
             document.getElementById(`power-${index}`).value = Math.round(power);
+            
+            // Update distance
+            updateDistance(index);
         }
         
         function updateCPFromPower(powerValue) {
@@ -454,6 +461,9 @@
             
             document.getElementById(`duration-min-${index}`).value = durationMinSec.minutes;
             document.getElementById(`duration-sec-min-${index}`).value = durationMinSec.seconds;
+            
+            // Update distance
+            updateDistance(index);
         }
         
         function updateFromDurationMinSec(index) {
@@ -465,6 +475,9 @@
             
             // Update seconds field to match
             document.getElementById(`duration-sec-${index}`).value = totalSeconds;
+            
+            // Update distance
+            updateDistance(index);
         }
         
         function removeInterval(index) {
@@ -485,6 +498,7 @@
                 const pace = powerToPace(interval.power);
                 const paceMinSec = decimalToPaceMinSec(pace);
                 const durationMinSec = secondsToMinSec(interval.duration);
+                const distance = calculateDistance(pace, interval.duration);
                 
                 row.innerHTML = `
                     <td>${index + 1}</td>
@@ -508,6 +522,7 @@
                             </div>
                         </div>
                     </td>
+                    <td><span id="distance-${index}" style="font-weight: bold; color: #007bff;">${distance} m</span></td>
                     <td><button class="btn btn-danger" onclick="removeInterval(${index})">Remove</button></td>
                 `;
             });
@@ -563,6 +578,31 @@
         
         function minSecToSeconds(minutes, seconds) {
             return parseInt(minutes) * 60 + parseInt(seconds);
+        }
+        
+        // Function to calculate distance in meters from pace and duration
+        function calculateDistance(paceMinPerKm, durationSeconds) {
+            if (paceMinPerKm <= 0) return 0;
+            // Distance = Duration (in minutes) / Pace (min/km) * 1000 (to convert km to meters)
+            const durationMinutes = durationSeconds / 60;
+            const distanceKm = durationMinutes / paceMinPerKm;
+            return Math.round(distanceKm * 1000); // Convert to meters and round
+        }
+        
+        // Function to update distance display for a specific interval
+        function updateDistance(index) {
+            if (index >= intervals.length) return;
+            
+            const minutes = document.getElementById(`pace-min-${index}`).value;
+            const seconds = document.getElementById(`pace-sec-${index}`).value;
+            const decimalPace = paceMinSecToDecimal(minutes, seconds);
+            const duration = intervals[index].duration;
+            
+            const distance = calculateDistance(decimalPace, duration);
+            const distanceElement = document.getElementById(`distance-${index}`);
+            if (distanceElement) {
+                distanceElement.textContent = `${distance} m`;
+            }
         }
         
 
