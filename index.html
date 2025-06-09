@@ -435,9 +435,7 @@
             const expenditures = []; // Array of {time, wExp} objects
             
             // For Waterworth optimization - efficient online algorithm
-            let S = 0.0; // Running sum for Waterworth model
-            const decay = Math.exp(-timeStep / tau); // e^(-dt/τ) - calculated once
-            let stepIndex = 0; // Track current step for Waterworth calculation
+            let S = 0.0; // Running sum for Waterworth model: S(t) = Σ W'_exp(t) · e^(t/τ)
             
             for (let i = 0; i < intervals.length; i++) {
                 const interval = intervals[i];
@@ -486,15 +484,14 @@
                         
                     } else {
                         // Waterworth's efficient online optimization algorithm
-                        // Based on: S = (S + W) * decay^(-1) equivalent to S = S * e^(-dt/τ) + W
-                        // W_bal[i] = W' - S * decay^(i + 1)
+                        // S(t) = Σ W'_exp(t) · e^(t/τ)
+                        // W'_bal(t) = W' - S(t) · e^(-t/τ)
                         
-                        // Update running sum S using efficient online formula
-                        S = (S + wExp) * Math.pow(decay, -1);
+                        // Update running sum S: S(t) = Σ W'_exp(u) * e^(u/τ) for u=0 to t
+                        S += wExp * Math.exp(currentTime / tau);
                         
-                        // Calculate W' balance at current step
-                        currentWBalance = wprime - S * Math.pow(decay, stepIndex + 1);
-                        stepIndex++;
+                        // Calculate W' balance: W'_bal(t) = W' - S(t) * e^(-t/τ)
+                        currentWBalance = wprime - S * Math.exp(-currentTime / tau);
                     }
                     
                     // Ensure W' balance stays within bounds
