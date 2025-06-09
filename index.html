@@ -59,9 +59,19 @@
         
         input[type="number"], select {
             padding: 10px;
+            padding-right: 25px; /* Extra space for spinner arrows */
             border: 1px solid #ddd;
             border-radius: 5px;
             font-size: 16px;
+            min-width: 80px;
+        }
+        
+        /* Ensure spinner arrows are visible and properly positioned */
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button {
+            -webkit-appearance: inner-spin-button;
+            margin: 0;
+            height: auto;
         }
         
         .intervals-section {
@@ -76,6 +86,7 @@
             gap: 10px;
             margin-bottom: 15px;
             flex-wrap: wrap;
+            align-items: center;
         }
         
         .btn {
@@ -241,8 +252,17 @@
             </div>
             
             <div class="input-group">
-                <label for="cp">Critical Power (W):</label>
-                <input type="number" id="cp" value="250" min="50" max="500" step="1">
+                <label for="cp">Critical Power (W) / LT1 (W):</label>
+                <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                    <input type="number" id="cp" value="265" min="50" max="500" step="1" onchange="updateCPFromPower(this.value)">
+                    <div style="display: flex; gap: 5px; align-items: center;">
+                        <span style="font-size: 14px; color: #666;">or</span>
+                        <input type="number" id="cp-pace-min" value="5" min="2" max="10" step="1" style="width: 65px;" onchange="updateCPFromPace()">
+                        <span>:</span>
+                        <input type="number" id="cp-pace-sec" value="15" min="0" max="59" step="1" style="width: 65px;" onchange="updateCPFromPace()">
+                        <span style="font-size: 12px; color: #666;">min/km</span>
+                    </div>
+                </div>
             </div>
             
             <div class="input-group">
@@ -268,6 +288,7 @@
                         <tr>
                             <th>Interval #</th>
                             <th>Power (W)</th>
+                            <th>Pace (min:sec/km)</th>
                             <th>Duration (s)</th>
                             <th>Action</th>
                         </tr>
@@ -318,6 +339,10 @@
             const canvas = document.getElementById('chart');
             chartCtx = canvas.getContext('2d');
             
+            // Initialize CP pace fields
+            const defaultCP = 265;
+            updateCPFromPower(defaultCP);
+            
             // Handle window resize
             window.addEventListener('resize', function() {
                 if (chartData && wprime > 0) {
@@ -334,10 +359,35 @@
             const row = tbody.insertRow();
             const intervalNum = intervals.length + 1;
             
+            // Calculate default pace from power for display
+            const defaultPace = powerToPace(power);
+            const paceMinSec = decimalToPaceMinSec(defaultPace);
+            
+            // Calculate duration in minutes and seconds
+            const durationMinSec = secondsToMinSec(duration);
+            
             row.innerHTML = `
                 <td>${intervalNum}</td>
-                <td><input type="number" value="${power}" min="0" max="1000" step="1" onchange="updateInterval(${intervals.length}, 'power', this.value)"></td>
-                <td><input type="number" value="${duration}" min="1" max="600" step="1" onchange="updateInterval(${intervals.length}, 'duration', this.value)"></td>
+                <td><input type="number" value="${power}" min="0" max="1000" step="1" onchange="updateFromPower(${intervals.length}, this.value)" id="power-${intervals.length}"></td>
+                <td>
+                    <div style="display: flex; gap: 5px; align-items: center;">
+                        <input type="number" value="${paceMinSec.minutes}" min="0" max="10" step="1" style="width: 65px;" onchange="updateFromPace(${intervals.length})" id="pace-min-${intervals.length}">
+                        <span>:</span>
+                        <input type="number" value="${paceMinSec.seconds}" min="0" max="59" step="1" style="width: 65px;" onchange="updateFromPace(${intervals.length})" id="pace-sec-${intervals.length}">
+                    </div>
+                </td>
+                <td>
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <input type="number" value="${duration}" min="1" max="3600" step="1" style="width: 80px;" onchange="updateFromSeconds(${intervals.length}, this.value)" id="duration-sec-${intervals.length}">
+                        <span style="font-size: 12px; color: #666;">sec</span>
+                        <div style="display: flex; gap: 5px; align-items: center;">
+                            <span style="font-size: 14px; color: #666;">or</span>
+                            <input type="number" value="${durationMinSec.minutes}" min="0" max="60" step="1" style="width: 65px;" onchange="updateFromDurationMinSec(${intervals.length})" id="duration-min-${intervals.length}">
+                            <span>:</span>
+                            <input type="number" value="${durationMinSec.seconds}" min="0" max="59" step="1" style="width: 65px;" onchange="updateFromDurationMinSec(${intervals.length})" id="duration-sec-min-${intervals.length}">
+                        </div>
+                    </div>
+                </td>
                 <td><button class="btn btn-danger" onclick="removeInterval(${intervals.length})">Remove</button></td>
             `;
             
@@ -346,6 +396,75 @@
         
         function updateInterval(index, field, value) {
             intervals[index][field] = parseFloat(value);
+        }
+        
+        function updateFromPower(index, powerValue) {
+            const power = parseFloat(powerValue);
+            intervals[index].power = power;
+            
+            // Update pace fields to match
+            const pace = powerToPace(power);
+            const paceMinSec = decimalToPaceMinSec(pace);
+            
+            document.getElementById(`pace-min-${index}`).value = paceMinSec.minutes;
+            document.getElementById(`pace-sec-${index}`).value = paceMinSec.seconds;
+        }
+        
+        function updateFromPace(index) {
+            const minutes = document.getElementById(`pace-min-${index}`).value;
+            const seconds = document.getElementById(`pace-sec-${index}`).value;
+            
+            const decimalPace = paceMinSecToDecimal(minutes, seconds);
+            const power = paceToPower(decimalPace);
+            
+            intervals[index].power = power;
+            
+            // Update power field to match
+            document.getElementById(`power-${index}`).value = Math.round(power);
+        }
+        
+        function updateCPFromPower(powerValue) {
+            const power = parseFloat(powerValue);
+            
+            // Update pace fields to match
+            const pace = powerToPace(power);
+            const paceMinSec = decimalToPaceMinSec(pace);
+            
+            document.getElementById('cp-pace-min').value = paceMinSec.minutes;
+            document.getElementById('cp-pace-sec').value = paceMinSec.seconds;
+        }
+        
+        function updateCPFromPace() {
+            const minutes = document.getElementById('cp-pace-min').value;
+            const seconds = document.getElementById('cp-pace-sec').value;
+            
+            const decimalPace = paceMinSecToDecimal(minutes, seconds);
+            const power = paceToPower(decimalPace);
+            
+            // Update power field to match
+            document.getElementById('cp').value = Math.round(power);
+        }
+        
+        function updateFromSeconds(index, secondsValue) {
+            const seconds = parseInt(secondsValue);
+            intervals[index].duration = seconds;
+            
+            // Update minutes:seconds fields to match
+            const durationMinSec = secondsToMinSec(seconds);
+            
+            document.getElementById(`duration-min-${index}`).value = durationMinSec.minutes;
+            document.getElementById(`duration-sec-min-${index}`).value = durationMinSec.seconds;
+        }
+        
+        function updateFromDurationMinSec(index) {
+            const minutes = document.getElementById(`duration-min-${index}`).value;
+            const seconds = document.getElementById(`duration-sec-min-${index}`).value;
+            
+            const totalSeconds = minSecToSeconds(minutes, seconds);
+            intervals[index].duration = totalSeconds;
+            
+            // Update seconds field to match
+            document.getElementById(`duration-sec-${index}`).value = totalSeconds;
         }
         
         function removeInterval(index) {
@@ -363,10 +482,32 @@
             tbody.innerHTML = '';
             intervals.forEach((interval, index) => {
                 const row = tbody.insertRow();
+                const pace = powerToPace(interval.power);
+                const paceMinSec = decimalToPaceMinSec(pace);
+                const durationMinSec = secondsToMinSec(interval.duration);
+                
                 row.innerHTML = `
                     <td>${index + 1}</td>
-                    <td><input type="number" value="${interval.power}" min="0" max="1000" step="1" onchange="updateInterval(${index}, 'power', this.value)"></td>
-                    <td><input type="number" value="${interval.duration}" min="1" max="600" step="1" onchange="updateInterval(${index}, 'duration', this.value)"></td>
+                    <td><input type="number" value="${interval.power}" min="0" max="1000" step="1" onchange="updateFromPower(${index}, this.value)" id="power-${index}"></td>
+                    <td>
+                        <div style="display: flex; gap: 5px; align-items: center;">
+                            <input type="number" value="${paceMinSec.minutes}" min="0" max="10" step="1" style="width: 65px;" onchange="updateFromPace(${index})" id="pace-min-${index}">
+                            <span>:</span>
+                            <input type="number" value="${paceMinSec.seconds}" min="0" max="59" step="1" style="width: 65px;" onchange="updateFromPace(${index})" id="pace-sec-${index}">
+                        </div>
+                    </td>
+                    <td>
+                        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <input type="number" value="${interval.duration}" min="1" max="3600" step="1" style="width: 80px;" onchange="updateFromSeconds(${index}, this.value)" id="duration-sec-${index}">
+                            <span style="font-size: 12px; color: #666;">sec</span>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <span style="font-size: 14px; color: #666;">or</span>
+                                <input type="number" value="${durationMinSec.minutes}" min="0" max="60" step="1" style="width: 65px;" onchange="updateFromDurationMinSec(${index})" id="duration-min-${index}">
+                                <span>:</span>
+                                <input type="number" value="${durationMinSec.seconds}" min="0" max="59" step="1" style="width: 65px;" onchange="updateFromDurationMinSec(${index})" id="duration-sec-min-${index}">
+                            </div>
+                        </div>
+                    </td>
                     <td><button class="btn btn-danger" onclick="removeInterval(${index})">Remove</button></td>
                 `;
             });
@@ -381,6 +522,50 @@
             addInterval(150, 180);  // 3 min recovery at 150W
             addInterval(300, 240);  // 4 min at 300W
         }
+        
+        // Conversion functions using the provided formula
+        function paceToPower(pace) {
+            // P (W) = 1394.79015 / p + 5.41227
+            if (pace <= 0) return 0;
+            return 1394.79015 / pace + 5.41227;
+        }
+        
+        function powerToPace(power) {
+            // Inverse of the formula: p = 1394.79015 / (P - 5.41227)
+            const adjustedPower = power - 5.41227;
+            if (adjustedPower <= 0) return 10; // Return a reasonable max pace
+            return 1394.79015 / adjustedPower;
+        }
+        
+        // Helper functions for minutes:seconds pace format
+        function decimalToPaceMinSec(decimalMinutes) {
+            const minutes = Math.floor(decimalMinutes);
+            const seconds = Math.round((decimalMinutes - minutes) * 60);
+            return {
+                minutes: minutes,
+                seconds: seconds === 60 ? 0 : seconds // Handle rounding edge case
+            };
+        }
+        
+        function paceMinSecToDecimal(minutes, seconds) {
+            return parseInt(minutes) + parseInt(seconds) / 60;
+        }
+        
+        // Helper functions for duration minutes:seconds format
+        function secondsToMinSec(totalSeconds) {
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            return {
+                minutes: minutes,
+                seconds: seconds
+            };
+        }
+        
+        function minSecToSeconds(minutes, seconds) {
+            return parseInt(minutes) * 60 + parseInt(seconds);
+        }
+        
+
         
         function calculate() {
             wprime = parseFloat(document.getElementById('wprime').value);
